@@ -139,50 +139,56 @@
                 const data = JSON.parse(message.toString());
                 const timeStamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-                // Update Visual KPI readouts
-                if (data.weight !== undefined) wTxt.innerText = data.weight.toFixed(2) + " kg";
-                if (data.distance !== undefined && data.distance >= 0) dTxt.innerText = data.distance.toFixed(1) + " cm";
-                sTxt.innerText = data.status;
-
-                // Adjust status coloring contextually
-                if(data.status.includes("LOW") || data.status.includes("Warning")) {
-                    sTxt.className = "text-xl font-bold text-red-400 mt-3 truncate";
-                } else if (data.status.includes("PENDING")) {
-                    sTxt.className = "text-xl font-bold text-amber-400 mt-3 truncate";
-                } else {
-                    sTxt.className = "text-xl font-bold text-emerald-400 mt-3 truncate";
+                // 🚨 CHANGED TO UPPERCASE KEY MATCHING HERE:
+                if (data.WEIGHT !== undefined) wTxt.innerText = data.WEIGHT.toFixed(2) + " kg";
+                if (data.DISTANCE !== undefined && data.DISTANCE >= 0) dTxt.innerText = data.DISTANCE.toFixed(1) + " cm";
+                
+                // Handle lowercase status or convert to match your ESP32 casing
+                if (data.status !== undefined) {
+                    sTxt.innerText = data.status;
+                    if(data.status.toUpperCase().includes("LOW") || data.status.toUpperCase().includes("WARNING")) {
+                        sTxt.className = "text-xl font-bold text-red-400 mt-3 truncate";
+                    } else if (data.status.toUpperCase().includes("PENDING")) {
+                        sTxt.className = "text-xl font-bold text-amber-400 mt-3 truncate";
+                    } else {
+                        sTxt.className = "text-xl font-bold text-emerald-400 mt-3 truncate";
+                    }
                 }
 
-                // Chart Progression Mapping
+                // Chart Progression Mapping (Match uppercase keys)
                 if (varianceChart.data.labels.length > maxDataPoints) {
                     varianceChart.data.labels.shift();
                     varianceChart.data.datasets[0].data.shift();
                 }
                 varianceChart.data.labels.push(timeStamp);
-                varianceChart.data.datasets[0].data.push(data.weight);
+                varianceChart.data.datasets[0].data.push(data.WEIGHT || 0); // 🚨 Upper
                 varianceChart.update();
 
-                // Build Log Rows Contextually
-                if (data.event !== "HEARTBEAT") {
-                    if (data.event === "DISPATCH") totalDispatches++;
+                // Build Log Rows Contextually (Match lowercase event key if applicable)
+                let eventKey = data.event || data.EVENT || "HEARTBEAT";
+                let metaKey = data.meta || data.META || "None";
+                let statusKey = data.status || data.STATUS || "";
+
+                if (eventKey !== "HEARTBEAT") {
+                    if (eventKey === "DISPATCH") totalDispatches++;
                     cTxt.innerText = totalDispatches;
 
                     if(listContainer.innerHTML.includes("Awaiting inbound payload")) listContainer.innerHTML = "";
                     
                     let badgeColor = "bg-slate-700 text-slate-300";
-                    if (data.event === "DISPATCH") badgeColor = "bg-teal-500/10 text-teal-400 border border-teal-500/20";
-                    if (data.event === "RESTOCK") badgeColor = "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20";
-                    if (data.event === "SCAN_REQUEST") badgeColor = "bg-amber-500/10 text-amber-400 border border-amber-500/20";
-                    if (data.event === "ALERT") badgeColor = "bg-red-500/10 text-red-400 border border-red-500/20";
+                    if (eventKey === "DISPATCH") badgeColor = "bg-teal-500/10 text-teal-400 border border-teal-500/20";
+                    if (eventKey === "RESTOCK") badgeColor = "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20";
+                    if (eventKey === "SCAN_REQUEST") badgeColor = "bg-amber-500/10 text-amber-400 border border-amber-500/20";
+                    if (eventKey === "ALERT") badgeColor = "bg-red-500/10 text-red-400 border border-red-500/20";
 
                     const rowHTML = `
                         <li class="text-xs py-3 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 animate-fadeIn">
                             <div class="flex items-center gap-2">
-                                <span class="px-2 py-0.5 rounded font-mono text-[10px] font-bold ${badgeColor}">${data.event}</span>
-                                <span class="text-slate-300 font-medium">${data.status}</span>
+                                <span class="px-2 py-0.5 rounded font-mono text-[10px] font-bold ${badgeColor}">${eventKey}</span>
+                                <span class="text-slate-300 font-medium">${statusKey}</span>
                             </div>
                             <div class="text-slate-500 text-[11px] font-mono flex items-center gap-2">
-                                <span>${data.meta !== "None" ? 'Info: ' + data.meta : ''}</span>
+                                <span>${metaKey !== "None" ? 'Info: ' + metaKey : ''}</span>
                                 <span class="bg-slate-800 px-1.5 py-0.5 rounded text-slate-400">${timeStamp}</span>
                             </div>
                         </li>
