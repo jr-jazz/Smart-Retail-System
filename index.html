@@ -4,17 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Smart Retail Analytics Ledger</title>
-    <!-- Tailwind CSS for sleek UI styling -->
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <!-- Chart.js for beautiful real-time graph rendering -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- MQTT over WebSockets library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen font-sans">
 
     <div class="container mx-auto p-6 max-w-7xl">
-        <!-- Header -->
         <header class="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-800 pb-6 mb-8 gap-4">
             <div>
                 <h1 class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-teal-400 to-cyan-400 bg-clip-text text-transparent">Smart Retail Supply Chain Analytics</h1>
@@ -26,7 +22,6 @@
             </div>
         </header>
 
-        <!-- KPI Summary Cards Grid -->
         <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700/50 shadow-xl">
                 <p class="text-sm font-medium text-slate-400 uppercase tracking-wider">Current Shelf Balance</p>
@@ -46,9 +41,7 @@
             </div>
         </section>
 
-        <!-- Main Visual Layout Split -->
         <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <!-- Real-time Chart Window -->
             <div class="lg:col-span-2 bg-slate-800 p-6 rounded-3xl border border-slate-700/50 shadow-xl min-h-[400px] flex flex-col">
                 <h2 class="text-lg font-bold text-slate-200 mb-4 tracking-tight flex items-center gap-2">
                     📈 Live Stock Variance Timeline
@@ -58,7 +51,6 @@
                 </div>
             </div>
 
-            <!-- Live Transaction Queue Log -->
             <div class="bg-slate-800 p-6 rounded-3xl border border-slate-700/50 shadow-xl flex flex-col h-[450px]">
                 <h2 class="text-lg font-bold text-slate-200 mb-4 tracking-tight">📋 Analytics Ledger Event Log</h2>
                 <div class="overflow-y-auto flex-grow rounded-xl bg-slate-900 border border-slate-800/80 p-4">
@@ -70,41 +62,45 @@
         </main>
     </div>
 
-    <!-- Scripting Infrastructure -->
     <script>
-        // --- DATA COGNITION CACHING ---
         let totalDispatches = 0;
-        const maxDataPoints = 25; // Timeline scroll length
+        const maxDataPoints = 25; 
 
-        // --- DOM TARGETS ---
         const wTxt = document.getElementById('kpi-weight');
         const dTxt = document.getElementById('kpi-distance');
         const cTxt = document.getElementById('kpi-dispatches');
         const sTxt = document.getElementById('kpi-status');
         const listContainer = document.getElementById('ledger-list');
 
-        // --- CONNECTIVITY CONFIGURATION ---
-        // Connect via Secure WebSockets (WSS) to HiveMQ Public Broker
+        // Force explicit HiveMQ Secure WebSocket configurations
         const brokerUrl = 'wss://broker.hivemq.com:8884/mqtt'; 
-        // ⚠️ MUST MATCH THE EXACT UNIQUE TOPIC STRING DEFINED IN YOUR ESP32 CODE:
         const topic = 'smart_retail/analytics/retailshelf'; 
+
+        console.log("🚀 Initializing connection to Broker:", brokerUrl);
+        console.log("📋 Target Subscription Topic Path:", topic);
 
         const client = mqtt.connect(brokerUrl);
 
         client.on('connect', () => {
-            document.getElementById('connection-dot').className = "w-3 h-3 rounded-full bg-emerald-500 animate-none";
+            console.log("🎯 SUCCESS: Browser WebSockets Engine Shook Hands with HiveMQ!");
+            document.getElementById('connection-dot').className = "w-3 h-3 rounded-full bg-emerald-500";
             document.getElementById('connection-text').innerText = "Telemetry Pipeline Active";
             document.getElementById('connection-text').className = "text-sm font-semibold tracking-wide text-emerald-400";
-            client.subscribe(topic);
+            
+            client.subscribe(topic, (err) => {
+                if (!err) {
+                    console.log("📥 Subscription Verified. Listening to live room:", topic);
+                } else {
+                    console.error("❌ Subscription Failure Error Stack:", err);
+                }
+            });
         });
 
         client.on('error', (err) => {
-            document.getElementById('connection-dot').className = "w-3 h-3 rounded-full bg-red-500";
-            document.getElementById('connection-text').innerText = "Pipeline Malfunction";
-            console.error(err);
+            console.error("❌ MQTT Fatal Connection Malfunction:", err);
         });
 
-        // --- CHART.JS PARSING ENGINE ---
+        // --- CHART CONFIGURATION ---
         const ctx = document.getElementById('varianceChart').getContext('2d');
         const varianceChart = new Chart(ctx, {
             type: 'line',
@@ -133,71 +129,70 @@
             }
         });
 
-        // --- INBOUND TELEMETRY ROUTER ---
+        // --- INBOUND DATA ROUTER & PARSER ---
         client.on('message', (receivedTopic, message) => {
+            console.log("📥 [BROKER PAYLOAD RECEIVED] ->", message.toString());
+            
             try {
-                const data = JSON.parse(message.toString());
+                const rawStr = message.toString();
+                const data = JSON.parse(rawStr);
                 const timeStamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-                // 🚨 CHANGED TO UPPERCASE KEY MATCHING HERE:
-                if (data.WEIGHT !== undefined) wTxt.innerText = data.WEIGHT.toFixed(2) + " kg";
-                if (data.DISTANCE !== undefined && data.DISTANCE >= 0) dTxt.innerText = data.DISTANCE.toFixed(1) + " cm";
-                
-                // Handle lowercase status or convert to match your ESP32 casing
-                if (data.status !== undefined) {
-                    sTxt.innerText = data.status;
-                    if(data.status.toUpperCase().includes("LOW") || data.status.toUpperCase().includes("WARNING")) {
-                        sTxt.className = "text-xl font-bold text-red-400 mt-3 truncate";
-                    } else if (data.status.toUpperCase().includes("PENDING")) {
-                        sTxt.className = "text-xl font-bold text-amber-400 mt-3 truncate";
-                    } else {
-                        sTxt.className = "text-xl font-bold text-emerald-400 mt-3 truncate";
-                    }
+                // Multi-casing key checks to seamlessly catch both string versions
+                let weightVal = (data.weight !== undefined) ? data.weight : data.WEIGHT;
+                let distVal = (data.distance !== undefined) ? data.distance : data.DISTANCE;
+                let statusVal = data.status || data.STATUS || "Healthy";
+                let eventVal = data.event || data.EVENT || "HEARTBEAT";
+                let metaVal = data.meta || data.META || "None";
+
+                if (weightVal !== undefined) wTxt.innerText = parseFloat(weightVal).toFixed(2) + " kg";
+                if (distVal !== undefined && distVal >= 0) dTxt.innerText = parseFloat(distVal).toFixed(1) + " cm";
+                sTxt.innerText = statusVal;
+
+                if(statusVal.toUpperCase().includes("LOW") || statusVal.toUpperCase().includes("WARNING")) {
+                    sTxt.className = "text-xl font-bold text-red-400 mt-3 truncate";
+                } else if (statusVal.toUpperCase().includes("PENDING")) {
+                    sTxt.className = "text-xl font-bold text-amber-400 mt-3 truncate";
+                } else {
+                    sTxt.className = "text-xl font-bold text-emerald-400 mt-3 truncate";
                 }
 
-                // Chart Progression Mapping (Match uppercase keys)
                 if (varianceChart.data.labels.length > maxDataPoints) {
                     varianceChart.data.labels.shift();
                     varianceChart.data.datasets[0].data.shift();
                 }
                 varianceChart.data.labels.push(timeStamp);
-                varianceChart.data.datasets[0].data.push(data.WEIGHT || 0); // 🚨 Upper
+                varianceChart.data.datasets[0].data.push(weightVal || 0);
                 varianceChart.update();
 
-                // Build Log Rows Contextually (Match lowercase event key if applicable)
-                let eventKey = data.event || data.EVENT || "HEARTBEAT";
-                let metaKey = data.meta || data.META || "None";
-                let statusKey = data.status || data.STATUS || "";
-
-                if (eventKey !== "HEARTBEAT") {
-                    if (eventKey === "DISPATCH") totalDispatches++;
+                if (eventVal !== "HEARTBEAT") {
+                    if (eventVal === "DISPATCH") totalDispatches++;
                     cTxt.innerText = totalDispatches;
 
                     if(listContainer.innerHTML.includes("Awaiting inbound payload")) listContainer.innerHTML = "";
                     
                     let badgeColor = "bg-slate-700 text-slate-300";
-                    if (eventKey === "DISPATCH") badgeColor = "bg-teal-500/10 text-teal-400 border border-teal-500/20";
-                    if (eventKey === "RESTOCK") badgeColor = "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20";
-                    if (eventKey === "SCAN_REQUEST") badgeColor = "bg-amber-500/10 text-amber-400 border border-amber-500/20";
-                    if (eventKey === "ALERT") badgeColor = "bg-red-500/10 text-red-400 border border-red-500/20";
+                    if (eventVal === "DISPATCH") badgeColor = "bg-teal-500/10 text-teal-400 border border-teal-500/20";
+                    if (eventVal === "RESTOCK") badgeColor = "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20";
+                    if (eventVal === "SCAN_REQUEST") badgeColor = "bg-amber-500/10 text-amber-400 border border-amber-500/20";
+                    if (eventVal === "ALERT") badgeColor = "bg-red-500/10 text-red-400 border border-red-500/20";
 
                     const rowHTML = `
-                        <li class="text-xs py-3 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 animate-fadeIn">
+                        <li class="text-xs py-3 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
                             <div class="flex items-center gap-2">
-                                <span class="px-2 py-0.5 rounded font-mono text-[10px] font-bold ${badgeColor}">${eventKey}</span>
-                                <span class="text-slate-300 font-medium">${statusKey}</span>
+                                <span class="px-2 py-0.5 rounded font-mono text-[10px] font-bold ${badgeColor}">${eventVal}</span>
+                                <span class="text-slate-300 font-medium">${statusVal}</span>
                             </div>
                             <div class="text-slate-500 text-[11px] font-mono flex items-center gap-2">
-                                <span>${metaKey !== "None" ? 'Info: ' + metaKey : ''}</span>
+                                <span>${metaVal !== "None" ? 'Info: ' + metaVal : ''}</span>
                                 <span class="bg-slate-800 px-1.5 py-0.5 rounded text-slate-400">${timeStamp}</span>
                             </div>
                         </li>
                     `;
                     listContainer.insertAdjacentHTML('afterbegin', rowHTML);
                 }
-
             } catch (e) {
-                console.error("Payload decoding anomaly encountered:", e);
+                console.error("❌ JSON Object Decoding Anomaly:", e);
             }
         });
     </script>
