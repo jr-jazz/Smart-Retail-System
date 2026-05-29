@@ -73,8 +73,9 @@
         const listContainer = document.getElementById('ledger-list');
 
         // Force explicit HiveMQ Secure WebSocket configurations
-        const brokerUrl = 'wss://broker.hivemq.com:8884/mqtt'; 
-        const topic = 'smart_retail/analytics/retailshelf'; 
+        const brokerUrl = 'wss://mqtt-dashboard.com:8884/mqtt'; 
+        const topic = 'smart_retail/analytics/retailshelf';
+        
 
         console.log("🚀 Initializing connection to Broker:", brokerUrl);
         console.log("📋 Target Subscription Topic Path:", topic);
