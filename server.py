@@ -54,7 +54,6 @@ def fetch_recent_history():
         cursor.close()
         conn.close()
         
-        # Chronological rendering flip (left-to-right timeline)
         rows.reverse()
         return rows
     except mysql.connector.Error as err:
@@ -62,7 +61,7 @@ def fetch_recent_history():
         return []
 
 # ==========================================
-# 2. MQTT BROKER LISTENER (ESP32 PAYLOAD INTEGRATION)
+# 2. MQTT BROKER LISTENER (ESP32 RE-MAPPED TO YOUR EXACT KEYS)
 # ==========================================
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
@@ -79,16 +78,16 @@ def on_message(client, userdata, msg):
         payload = json.loads(msg.payload.decode('utf-8'))
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Safely convert arriving tokens with explicit safety typing
-        node_id = payload.get('node_id', 'ESP32_NODE')
-        mass_kg = float(payload.get('mass_kg', 0.0))
-        height_cm = float(payload.get('height_cm', 0.0))
-        status = payload.get('status', 'STANDBY')
+        # FIXED: Extraction variables now look for your exact ESP32 payload keys!
+        node_id = payload.get('meta', 'ESP32_NODE')  # Mapped to 'meta' or defaults if not present
+        mass_kg = float(payload.get('weight', 0.0))   # <--- MAPPED TO "weight"
+        height_cm = float(payload.get('distance', 0.0)) # <--- MAPPED TO "distance"
+        status = payload.get('status', 'STANDBY')     # <--- MAPPED TO "status"
 
-        # Push to transactional log engine
+        # Push parsed data cleanly into transactional MySQL structure
         log_to_mysql(node_id, mass_kg, height_cm, status, current_time)
 
-        # Assemble clean pipeline packet for active browser sockets
+        # Re-package a clean pipeline packet to pass down the WebSocket to the browser UI
         broadcast_payload = {
             "type": "live_update",
             "timestamp": current_time,
@@ -116,7 +115,6 @@ async def websocket_handler(websocket):
     connected_web_clients.add(websocket)
     print(f"[WEB DASHBOARD] Dashboard tab connected. Active sessions: {len(connected_web_clients)}")
     
-    # Pre-populate chart on initial handshake connection
     history = fetch_recent_history()
     history_packet = {
         "type": "historical_data",
@@ -162,7 +160,6 @@ async def main():
     mqtt_client.loop_start()
 
     print("[SERVER ENGINE] Starting server gateway on port 8765...")
-    # Bind to 0.0.0.0 to break down local routing port blocks
     async with websockets.serve(websocket_handler, "0.0.0.0", 8765):
         await asyncio.Future()  
 

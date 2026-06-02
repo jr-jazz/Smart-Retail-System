@@ -46,7 +46,6 @@
         const ctx = document.getElementById('sqlStreamChart').getContext('2d');
         const statusBadge = document.getElementById('connStatus');
         
-        // 1. Chart Configuration Object Initializing
         const telemetryChart = new Chart(ctx, {
             type: 'line',
             data: {
@@ -71,7 +70,7 @@
             }
         });
 
-        // 2. Open full-duplex socket down explicit loopback address interface
+        // Establish connection via exact loopback address interface
         const socket = new WebSocket('ws://127.0.0.1:8765');
 
         socket.onopen = () => {
@@ -84,11 +83,10 @@
             statusBadge.className = "px-4 py-2 rounded-full text-xs font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30";
         };
 
-        // 3. Multi-Channel Message Processing Engine
         socket.onmessage = (event) => {
             const response = JSON.parse(event.data);
 
-            // Channel 1: Historical Data Loadout Injection
+            // Channel 1: Historical Data Back-log Injection
             if (response.type === "historical_data") {
                 telemetryChart.data.labels = [];
                 telemetryChart.data.datasets[0].data = [];
@@ -121,11 +119,11 @@
                 const liveMassVal = (response.mass_kg !== undefined && response.mass_kg !== null) ? Number(response.mass_kg) : 0;
                 telemetryChart.data.labels.push(timeLabel);
                 telemetryChart.data.datasets[0].data.push(liveMassVal);
-                telemetryChart.update('none'); // Update instantly without choppy structural lag
+                telemetryChart.update('none'); 
             }
         };
 
-        // 4. Safe UI Renderer Block with Built-In Value Protectors (Fixes undefined.toFixed crashes)
+        // UI Renderer Block with Built-In Value Protectors
         function updateUIDashcards(data) {
             const massValue = (data && data.mass_kg !== undefined && data.mass_kg !== null) ? Number(data.mass_kg) : 0;
             const heightValue = (data && data.height_cm !== undefined && data.height_cm !== null) ? Number(data.height_cm) : 0;
