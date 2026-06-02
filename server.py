@@ -16,12 +16,14 @@ DB_CONFIG = {
 }
 
 def log_to_mysql(node_id, mass_kg, height_cm, status, current_time):
+    """Establishes a transactional connection to store data rows inside MySQL."""
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
         
+        # UPDATED: Matches the clean weight/distance columns
         query = """
-            INSERT INTO shelf_telemetry (timestamp, node_id, mass_kg, height_cm, status)
+            INSERT INTO shelf_telemetry (timestamp, node_id, weight, distance, status)
             VALUES (%s, %s, %s, %s, %s)
         """
         values = (current_time, node_id, mass_kg, height_cm, status)
@@ -31,25 +33,29 @@ def log_to_mysql(node_id, mass_kg, height_cm, status, current_time):
         
         cursor.close()
         conn.close()
-        print(f"[MYSQL SUCCESS] Saved: {mass_kg}kg | {height_cm}cm")
+        print(f"[MYSQL LOGGED] Transaction committed: {mass_kg}kg | {height_cm}cm")
     except mysql.connector.Error as err:
         print(f"[MYSQL ERROR] Database transaction failed: {err}")
 
 def fetch_recent_history():
+    """Queries MySQL to pull the last 15 records to pre-fill the web app graph upon reload."""
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
         
+        # UPDATED: Pulls directly from weight and distance columns
         query = """
-            SELECT timestamp, node_id, CAST(mass_kg AS DOUBLE) as mass_kg, 
-                   CAST(height_cm AS DOUBLE) as height_cm, status 
+            SELECT timestamp, node_id, CAST(weight AS DOUBLE) as mass_kg, 
+                   CAST(distance AS DOUBLE) as height_cm, status 
             FROM shelf_telemetry 
             ORDER BY id DESC LIMIT 15
         """
         cursor.execute(query)
         rows = cursor.fetchall()
+        
         cursor.close()
         conn.close()
+        
         rows.reverse()
         return rows
     except mysql.connector.Error as err:
