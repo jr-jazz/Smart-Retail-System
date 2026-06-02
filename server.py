@@ -10,8 +10,8 @@ from datetime import datetime
 # ==========================================
 DB_CONFIG = {
     'host': 'localhost',
-    'user': 'root',        
-    'password': 'root', 
+    'user': 'root',          
+    'password': 'your_password_here',  # <-- PUT YOUR ACTUAL MYSQL PASSWORD HERE
     'database': 'smart_retail_shelf'
 }
 
@@ -45,7 +45,8 @@ MQTT_TOPIC = "shelf/telemetry"
 
 connected_web_clients = set()
 
-def on_connect(client, userdata, flags, rc):
+def on_connect(client, userdata, flags, rc, properties=None):
+    """Updated to support both Paho MQTT v1 and v2 callback signatures."""
     print(f"[MQTT] Connected to HiveMQ Broker with result code {rc}")
     client.subscribe(MQTT_TOPIC)
 
@@ -64,9 +65,12 @@ def on_message(client, userdata, msg):
             current_time=current_time
         )
 
-        # Inject runtime timestamp and push out to our open browser clients
+        # Inject runtime timestamp
         payload['timestamp'] = current_time
-        broadcast_to_webpages(json.dumps(payload))
+        
+        # Safe async broadcast task creation for running loop
+        message_str = json.dumps(payload)
+        asyncio.run_coroutine_threadsafe(broadcast_to_webpages(message_str), main_loop)
 
     except Exception as e:
         print(f"[ERROR] Failed to process incoming telemetry stream: {e}")
@@ -74,16 +78,15 @@ def on_message(client, userdata, msg):
 # ==========================================
 # 3. WEBSOCKETS REAL-TIME ENGINE
 # ==========================================
-def broadcast_to_webpages(message):
+async def broadcast_to_webpages(message):
     """Broadcasts telemetry changes to all open browser windows immediately."""
     if connected_web_clients:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        tasks = [client.send(message) for client in connected_web_clients]
-        loop.run_until_complete(asyncio.gather(*tasks))
-        loop.close()
+        # Create a copy of the set to avoid modification errors during iteration
+        clients = connected_web_clients.copy()
+        await asyncio.gather(*[client.send(message) for client in clients], return_exceptions=True)
 
-async def websocket_handler(websocket, path):
+async def websocket_handler(websocket):
+    """Updated syntax for newer websockets library versions."""
     connected_web_clients.add(websocket)
     print(f"[WEB DASHBOARD] Dashboard tab connected. Active sessions: {len(connected_web_clients)}")
     try:
@@ -96,29 +99,41 @@ async def websocket_handler(websocket, path):
         print(f"[WEB DASHBOARD] Dashboard tab disconnected. Active sessions: {len(connected_web_clients)}")
 
 # ==========================================
-# 4. RUNTIME SYSTEM EXECUTION
+# 4. RUNTIME SYSTEM EXECUTION (ASYNC ENTRY)
 # ==========================================
-if __name__ == "__main__":
+main_loop = None
+
+async def main():
+    global main_loop
+    main_loop = asyncio.get_running_loop()
+
     print("[SERVER ENGINE] Verifying local MySQL parameters...")
     try:
-        # Simple handshake check to confirm server credentials at initialization
         test_conn = mysql.connector.connect(**DB_CONFIG)
         test_conn.close()
         print("[MYSQL DATABASE] Secure connection verified successfully.")
     except mysql.connector.Error as err:
         print(f"[CRITICAL FAILURE] Cannot reach MySQL Server: {err}")
-        exit(1)
+        return
 
-    # Boot up background MQTT listener loop
-    mqtt_client = mqtt.Client()
+    # Boot up background MQTT listener loop using explicit Callback API version 2
+    # This completely eliminates the DeprecationWarning
+    try:
+        mqtt_client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+    except AttributeError:
+        # Fallback for older Paho versions if version 2 is unavailable
+        mqtt_client = mqtt.Client()
+
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
     mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
     mqtt_client.loop_start()
 
-    # Launch WebSocket server on port 8765
+    # Launch WebSocket server on port 8765 using the modern async context manager syntax
     print("[SERVER ENGINE] Starting server gateway on port 8765...")
-    start_server = websockets.serve(websocket_handler, "localhost", 8765)
+    async with websockets.serve(websocket_handler, "localhost", 8765):
+        await asyncio.Future()  # This keeps the server running forever
 
-    asyncio.get_event_loop().run_until_complete(start_server)
-    asyncio.get_event_loop().run_forever()
+if __name__ == "__main__":
+    # Use modern asyncio.run() to properly establish the event loop at boot time
+    asyncio.run(main())
