@@ -11,12 +11,11 @@ from datetime import datetime
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',          
-    'password': 'root',  # <-- CHANGE THIS TO YOUR MYSQL PASSWORD
+    'password': 'root',  # <-- MAKE SURE THIS PASSWORD IS 100% CORRECT
     'database': 'smart_retail_shelf'
 }
 
 def log_to_mysql(node_id, mass_kg, height_cm, status, current_time):
-    """Establishes a transactional connection to store data rows inside MySQL."""
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
@@ -32,12 +31,11 @@ def log_to_mysql(node_id, mass_kg, height_cm, status, current_time):
         
         cursor.close()
         conn.close()
-        print(f"[MYSQL LOGGED] Transaction committed: {mass_kg}kg at {current_time}")
+        print(f"[MYSQL SUCCESS] Saved: {mass_kg}kg | {height_cm}cm")
     except mysql.connector.Error as err:
         print(f"[MYSQL ERROR] Database transaction failed: {err}")
 
 def fetch_recent_history():
-    """Queries MySQL to pull the last 15 records to pre-fill the web app graph upon reload."""
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
@@ -50,10 +48,8 @@ def fetch_recent_history():
         """
         cursor.execute(query)
         rows = cursor.fetchall()
-        
         cursor.close()
         conn.close()
-        
         rows.reverse()
         return rows
     except mysql.connector.Error as err:
@@ -61,33 +57,42 @@ def fetch_recent_history():
         return []
 
 # ==========================================
-# 2. MQTT BROKER LISTENER (ESP32 RE-MAPPED TO YOUR EXACT KEYS)
+# 2. MQTT DIAGNOSTIC SUBSCRIBER PIPELINE
 # ==========================================
+# Double-check this matches your ESP32 publish topic perfectly (case-sensitive!)
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
-MQTT_TOPIC = "shelf/telemetry"
+MQTT_TOPIC = "shelf/telemetry" 
 
 connected_web_clients = set()
 
 def on_connect(client, userdata, flags, rc, properties=None):
-    print(f"[MQTT] Connected to HiveMQ Broker with code {rc}")
-    client.subscribe(MQTT_TOPIC)
+    print(f"\n[MQTT GATEWAY] Connected to HiveMQ Broker! Result code: {rc}")
+    print(f"[MQTT GATEWAY] Actively Subscribing to topic: '{MQTT_TOPIC}'...")
+    
+    # Force registration check
+    result, mid = client.subscribe(MQTT_TOPIC)
+    if result == mqtt.MQTT_ERR_SUCCESS:
+        print("[MQTT GATEWAY] Subscription request acknowledged by broker.")
+    else:
+        print(f"[MQTT GATEWAY] CRITICAL: Subscription failed with error code: {result}")
 
 def on_message(client, userdata, msg):
     try:
-        payload = json.loads(msg.payload.decode('utf-8'))
+        raw_data = msg.payload.decode('utf-8')
+        print(f"\n[ALERT - INBOUND PACKET RECEIVAL]: {raw_data}")
+        
+        payload = json.loads(raw_data)
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # FIXED: Extraction variables now look for your exact ESP32 payload keys!
-        node_id = payload.get('meta', 'ESP32_NODE')  # Mapped to 'meta' or defaults if not present
-        mass_kg = float(payload.get('weight', 0.0))   # <--- MAPPED TO "weight"
-        height_cm = float(payload.get('distance', 0.0)) # <--- MAPPED TO "distance"
-        status = payload.get('status', 'STANDBY')     # <--- MAPPED TO "status"
+        # Pull values exactly as your ESP32 string constructs them
+        node_id = payload.get('meta', 'ESP32_NODE')  
+        mass_kg = float(payload.get('weight', 0.0))   
+        height_cm = float(payload.get('distance', 0.0)) 
+        status = payload.get('status', 'STANDBY')     
 
-        # Push parsed data cleanly into transactional MySQL structure
         log_to_mysql(node_id, mass_kg, height_cm, status, current_time)
 
-        # Re-package a clean pipeline packet to pass down the WebSocket to the browser UI
         broadcast_payload = {
             "type": "live_update",
             "timestamp": current_time,
@@ -101,10 +106,10 @@ def on_message(client, userdata, msg):
         asyncio.run_coroutine_threadsafe(broadcast_to_webpages(message_str), main_loop)
 
     except Exception as e:
-        print(f"[ERROR] Failed to process incoming telemetry stream: {e}")
+        print(f"[PARSING CRASH] Packet arrived but structure failed to compile: {e}")
 
 # ==========================================
-# 3. WEBSOCKETS REAL-TIME ENGINE
+# 3. WEBSOCKETS ENGINE
 # ==========================================
 async def broadcast_to_webpages(message):
     if connected_web_clients:
@@ -113,7 +118,7 @@ async def broadcast_to_webpages(message):
 
 async def websocket_handler(websocket):
     connected_web_clients.add(websocket)
-    print(f"[WEB DASHBOARD] Dashboard tab connected. Active sessions: {len(connected_web_clients)}")
+    print(f"[FRONTEND DISPATCHER] Browser socket established. Active sessions: {len(connected_web_clients)}")
     
     history = fetch_recent_history()
     history_packet = {
@@ -129,10 +134,10 @@ async def websocket_handler(websocket):
         pass
     finally:
         connected_web_clients.remove(websocket)
-        print(f"[WEB DASHBOARD] Dashboard tab disconnected. Active sessions: {len(connected_web_clients)}")
+        print(f"[FRONTEND DISPATCHER] Browser socket dropped. Active sessions: {len(connected_web_clients)}")
 
 # ==========================================
-# 4. RUNTIME ENVIRONMENT INITIATION
+# 4. RUNTIME BOOTSTRAPPER
 # ==========================================
 main_loop = None
 
@@ -140,13 +145,13 @@ async def main():
     global main_loop
     main_loop = asyncio.get_running_loop()
 
-    print("[SERVER ENGINE] Verifying local MySQL parameters...")
+    print("[BOOT] Starting system diagnostic boot sequence...")
     try:
         test_conn = mysql.connector.connect(**DB_CONFIG)
         test_conn.close()
-        print("[MYSQL DATABASE] Secure connection verified successfully.")
+        print("[BOOT] MySQL verification loop clear.")
     except mysql.connector.Error as err:
-        print(f"[CRITICAL FAILURE] Cannot reach MySQL Server: {err}")
+        print(f"[BOOT CRITICAL FAILURE] Could not access local MySQL instance daemon: {err}")
         return
 
     try:
@@ -157,17 +162,15 @@ async def main():
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
     
-    print("[SERVER ENGINE] Connecting to HiveMQ Broker...")
+    print(f"[BOOT] Initializing HiveMQ gateway socket connection to port {MQTT_PORT}...")
     mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
     mqtt_client.loop_start()
 
-    print("[SERVER ENGINE] Starting server gateway on port 8765...")
+    print("[BOOT] Spawning local host server engine at ws://127.0.0.1:8765...")
     async with websockets.serve(websocket_handler, "0.0.0.0", 8765):
-        print("[SERVER ENGINE] Pipeline fully operational! Listening for sensor packets...")
-        
-        # FIXED: Instead of freezing, we cleanly yield time to the MQTT background processor
+        print("[BOOT READY] Everything initialized. Awaiting hardware transmissions...")
         while True:
-            await asyncio.sleep(0.1) # Smoothly feeds incoming MQTT data packets into the async server loop
+            await asyncio.sleep(0.1) 
 
 if __name__ == "__main__":
     asyncio.run(main())
