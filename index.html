@@ -1,162 +1,148 @@
-import mysql.connector
-import json
-import asyncio
-import websockets
-import paho.mqtt.client as mqtt
-from datetime import datetime
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Enterprise Smart Shelf Control Panel</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans p-8">
 
-# ==========================================
-# 1. DATABASE CONFIGURATION & CONNECTIVITY
-# ==========================================
-DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'root',          
-    'password': 'root',  # <-- DOUBLE CHECK THIS IS CORRECT!
-    'database': 'smart_retail_shelf'
-}
+    <div class="max-w-6xl mx-auto bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-2xl flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold tracking-tight text-emerald-400">SMART SHELF INVENTORY ANALYSIS</h1>
+            <p class="text-sm text-slate-400 mt-1">Infrastructure: Python Server Engine Core & MySQL Transactional Data Cluster</p>
+        </div>
+        <div class="text-right">
+            <span id="connStatus" class="px-4 py-2 rounded-full text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                ESTABLISHING INFRASTRUCTURE GATEWAY...
+            </span>
+        </div>
+    </div>
 
-def log_to_mysql(node_id, mass_kg, height_cm, status, current_time):
-    """Establishes a connection and inserts a new row into the MySQL database."""
-    try:
-        conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor()
+    <div class="max-w-6xl mx-auto mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-lg">
+            <p class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Live Weight Readout</p>
+            <p id="liveMass" class="text-5xl font-black text-emerald-400 mt-2">0.00 <span class="text-xl font-normal text-slate-400">kg</span></p>
+        </div>
+        <div class="bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-lg">
+            <p class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Stack Volume Height</p>
+            <p id="liveHeight" class="text-5xl font-black text-cyan-400 mt-2">0.0 <span class="text-xl font-normal text-slate-400">cm</span></p>
+        </div>
+        <div class="bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-lg">
+            <p class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Node Security State</p>
+            <p id="liveStatus" class="text-4xl font-black text-slate-400 mt-3">STANDBY</p>
+        </div>
+
+        <div class="md:col-span-3 bg-slate-900 p-6 rounded-xl border border-slate-800 h-96 relative shadow-xl">
+            <h2 class="text-lg font-bold mb-4 text-slate-300">Continuous Relational MySQL Telemetry Stream</h2>
+            <div class="absolute inset-x-6 top-16 bottom-6">
+                <canvas id="sqlStreamChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('sqlStreamChart').getContext('2d');
+        const statusBadge = document.getElementById('connStatus');
         
-        query = """
-            INSERT INTO shelf_telemetry (timestamp, node_id, mass_kg, height_cm, status)
-            VALUES (%s, %s, %s, %s, %s)
-        """
-        values = (current_time, node_id, mass_kg, height_cm, status)
-        
-        cursor.execute(query, values)
-        conn.commit()
-        
-        cursor.close()
-        conn.close()
-        print(f"[MYSQL LOGGED] Transaction committed: {mass_kg}kg at {current_time}")
-    except mysql.connector.Error as err:
-        print(f"[MYSQL ERROR] Database transaction failed: {err}")
+        // 1. Chart Configuration Object Initializing
+        const telemetryChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Live Shelf Mass Tracking (kg)',
+                    data: [],
+                    borderColor: '#10b981',
+                    backgroundColor: 'rgba(16, 185, 129, 0.05)',
+                    borderWidth: 3,
+                    tension: 0.2,
+                    pointRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                    y: { grid: { color: '#1e293b' }, ticks: { color: '#64748b' } }
+                }
+            }
+        });
 
-def fetch_recent_history():
-    """Queries MySQL to pull the last 15 records to populate the web dashboard upon refresh."""
-    try:
-        conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor(dictionary=True) # Returns data as a clean dictionary format
-        
-        query = """
-            SELECT timestamp, node_id, CAST(mass_kg AS DOUBLE) as mass_kg, 
-                   CAST(height_cm AS DOUBLE) as height_cm, status 
-            FROM shelf_telemetry 
-            ORDER BY id DESC LIMIT 15
-        """
-        cursor.execute(query)
-        rows = cursor.fetchall()
-        
-        cursor.close()
-        conn.close()
-        
-        # Reverse rows so they show up chronological from left-to-right on chart
-        rows.reverse()
-        return rows
-    except mysql.connector.Error as err:
-        print(f"[MYSQL FETCH ERROR] Failed to load history: {err}")
-        return []
+        // 2. Open full-duplex socket down explicit loopback address interface
+        const socket = new WebSocket('ws://127.0.0.1:8765');
 
-# ==========================================
-# 2. MQTT BROKER LISTENER & PIPELINE
-# ==========================================
-MQTT_BROKER = "broker.hivemq.com"
-MQTT_PORT = 1883
-MQTT_TOPIC = "shelf/telemetry"
+        socket.onopen = () => {
+            statusBadge.innerText = "MYSQL DATABASE STREAM CONNECTED";
+            statusBadge.className = "px-4 py-2 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+        };
 
-connected_web_clients = set()
+        socket.onclose = () => {
+            statusBadge.innerText = "LOCAL SERVER OFFLINE";
+            statusBadge.className = "px-4 py-2 rounded-full text-xs font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30";
+        };
 
-def on_connect(client, userdata, flags, rc, properties=None):
-    print(f"[MQTT] Connected to HiveMQ Broker with result code {rc}")
-    client.subscribe(MQTT_TOPIC)
+        // 3. Multi-Channel Message Processing Engine
+        socket.onmessage = (event) => {
+            const response = JSON.parse(event.data);
 
-def on_message(client, userdata, msg):
-    try:
-        payload = json.loads(msg.payload.decode('utf-8'))
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        # Safely insert payload elements into MySQL
-        log_to_mysql(
-            node_id=payload.get('node_id', 'ESP32_NODE'),
-            mass_kg=float(payload.get('mass_kg', 0.0)),
-            height_cm=float(payload.get('height_cm', 0.0)),
-            status=payload.get('status', 'STANDBY'),
-            current_time=current_time
-        )
+            // Channel 1: Historical Data Loadout Injection
+            if (response.type === "historical_data") {
+                telemetryChart.data.labels = [];
+                telemetryChart.data.datasets[0].data = [];
+                
+                response.data.forEach(item => {
+                    const timeLabel = item.timestamp ? item.timestamp.split(" ")[1] : "00:00:00";
+                    const historicalMass = (item.mass_kg !== undefined && item.mass_kg !== null) ? Number(item.mass_kg) : 0;
+                    
+                    telemetryChart.data.labels.push(timeLabel);
+                    telemetryChart.data.datasets[0].data.push(historicalMass);
+                });
+                
+                if(response.data.length > 0) {
+                    const latest = response.data[response.data.length - 1];
+                    updateUIDashcards(latest);
+                }
+                telemetryChart.update();
+            } 
+            
+            // Channel 2: Live Fluid Sensor Stream Traversal
+            else if (response.type === "live_update") {
+                updateUIDashcards(response);
 
-        payload['timestamp'] = current_time
-        payload['type'] = 'live_update' # Flags packet as live data
-        
-        message_str = json.dumps(payload)
-        asyncio.run_coroutine_threadsafe(broadcast_to_webpages(message_str), main_loop)
+                const timeLabel = response.timestamp ? response.timestamp.split(" ")[1] : "00:00:00";
+                if (telemetryChart.data.labels.length > 15) {
+                    telemetryChart.data.labels.shift();
+                    telemetryChart.data.datasets[0].data.shift();
+                }
 
-    except Exception as e:
-        print(f"[ERROR] Failed to process incoming telemetry stream: {e}")
+                const liveMassVal = (response.mass_kg !== undefined && response.mass_kg !== null) ? Number(response.mass_kg) : 0;
+                telemetryChart.data.labels.push(timeLabel);
+                telemetryChart.data.datasets[0].data.push(liveMassVal);
+                telemetryChart.update('none'); // Update instantly without choppy structural lag
+            }
+        };
 
-# ==========================================
-# 3. WEBSOCKETS REAL-TIME ENGINE
-# ==========================================
-async def broadcast_to_webpages(message):
-    if connected_web_clients:
-        clients = connected_web_clients.copy()
-        await asyncio.gather(*[client.send(message) for client in clients], return_exceptions=True)
+        // 4. Safe UI Renderer Block with Built-In Value Protectors (Fixes undefined.toFixed crashes)
+        function updateUIDashcards(data) {
+            const massValue = (data && data.mass_kg !== undefined && data.mass_kg !== null) ? Number(data.mass_kg) : 0;
+            const heightValue = (data && data.height_cm !== undefined && data.height_cm !== null) ? Number(data.height_cm) : 0;
+            const statusValue = data.status || "STANDBY";
 
-async def websocket_handler(websocket):
-    connected_web_clients.add(websocket)
-    print(f"[WEB DASHBOARD] Dashboard tab connected. Active sessions: {len(connected_web_clients)}")
-    
-    # NEW: The exact millisecond a page opens/refreshes, pull history from MySQL and send it over!
-    history = fetch_recent_history()
-    history_packet = {
-        "type": "historical_data",
-        "data": history
-    }
-    await websocket.send(json.dumps(history_packet))
-
-    try:
-        async for message in websocket:
-            pass
-    except websockets.exceptions.ConnectionClosed:
-        pass
-    finally:
-        connected_web_clients.remove(websocket)
-        print(f"[WEB DASHBOARD] Dashboard tab disconnected. Active sessions: {len(connected_web_clients)}")
-
-# ==========================================
-# 4. RUNTIME SYSTEM EXECUTION (ASYNC ENTRY)
-# ==========================================
-main_loop = None
-
-async def main():
-    global main_loop
-    main_loop = asyncio.get_running_loop()
-
-    print("[SERVER ENGINE] Verifying local MySQL parameters...")
-    try:
-        test_conn = mysql.connector.connect(**DB_CONFIG)
-        test_conn.close()
-        print("[MYSQL DATABASE] Secure connection verified successfully.")
-    except mysql.connector.Error as err:
-        print(f"[CRITICAL FAILURE] Cannot reach MySQL Server: {err}")
-        return
-
-    try:
-        mqtt_client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
-    except AttributeError:
-        mqtt_client = mqtt.Client()
-
-    mqtt_client.on_connect = on_connect
-    mqtt_client.on_message = on_message
-    mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-    mqtt_client.loop_start()
-
-    print("[SERVER ENGINE] Starting server gateway on port 8765...")
-    async with websockets.serve(websocket_handler, "localhost", 8765):
-        await asyncio.Future()  
-
-if __name__ == "__main__":
-    asyncio.run(main())
+            document.getElementById('liveMass').innerHTML = `${massValue.toFixed(2)} <span class="text-xl font-normal text-slate-400">kg</span>`;
+            document.getElementById('liveHeight').innerHTML = `${heightValue.toFixed(1)} <span class="text-xl font-normal text-slate-400">cm</span>`;
+            
+            const statusEl = document.getElementById('liveStatus');
+            statusEl.innerText = statusValue;
+            
+            if(statusValue === "ALARM" || statusValue === "LOW STOCK") {
+                statusEl.className = "text-4xl font-black text-rose-500 mt-3 animate-pulse";
+            } else {
+                statusEl.className = "text-4xl font-black text-emerald-400 mt-3";
+            }
+        }
+    </script>
+</body>
+</html>

@@ -11,12 +11,12 @@ from datetime import datetime
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',          
-    'password': 'root',  # <-- DOUBLE CHECK THIS IS CORRECT!
+    'password': 'root',  # <-- CHANGE THIS TO YOUR MYSQL PASSWORD
     'database': 'smart_retail_shelf'
 }
 
 def log_to_mysql(node_id, mass_kg, height_cm, status, current_time):
-    """Establishes a connection and inserts a new row into the MySQL database."""
+    """Establishes a transactional connection to store data rows inside MySQL."""
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
@@ -37,10 +37,10 @@ def log_to_mysql(node_id, mass_kg, height_cm, status, current_time):
         print(f"[MYSQL ERROR] Database transaction failed: {err}")
 
 def fetch_recent_history():
-    """Queries MySQL to pull the last 15 records to populate the web dashboard upon refresh."""
+    """Queries MySQL to pull the last 15 records to pre-fill the web app graph upon reload."""
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor(dictionary=True) # Returns data as a clean dictionary format
+        cursor = conn.cursor(dictionary=True)
         
         query = """
             SELECT timestamp, node_id, CAST(mass_kg AS DOUBLE) as mass_kg, 
@@ -54,7 +54,7 @@ def fetch_recent_history():
         cursor.close()
         conn.close()
         
-        # Reverse rows so they show up chronological from left-to-right on chart
+        # Chronological rendering flip (left-to-right timeline)
         rows.reverse()
         return rows
     except mysql.connector.Error as err:
@@ -62,7 +62,7 @@ def fetch_recent_history():
         return []
 
 # ==========================================
-# 2. MQTT BROKER LISTENER & PIPELINE
+# 2. MQTT BROKER LISTENER (ESP32 PAYLOAD INTEGRATION)
 # ==========================================
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
@@ -71,7 +71,7 @@ MQTT_TOPIC = "shelf/telemetry"
 connected_web_clients = set()
 
 def on_connect(client, userdata, flags, rc, properties=None):
-    print(f"[MQTT] Connected to HiveMQ Broker with result code {rc}")
+    print(f"[MQTT] Connected to HiveMQ Broker with code {rc}")
     client.subscribe(MQTT_TOPIC)
 
 def on_message(client, userdata, msg):
@@ -79,19 +79,26 @@ def on_message(client, userdata, msg):
         payload = json.loads(msg.payload.decode('utf-8'))
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Safely insert payload elements into MySQL
-        log_to_mysql(
-            node_id=payload.get('node_id', 'ESP32_NODE'),
-            mass_kg=float(payload.get('mass_kg', 0.0)),
-            height_cm=float(payload.get('height_cm', 0.0)),
-            status=payload.get('status', 'STANDBY'),
-            current_time=current_time
-        )
+        # Safely convert arriving tokens with explicit safety typing
+        node_id = payload.get('node_id', 'ESP32_NODE')
+        mass_kg = float(payload.get('mass_kg', 0.0))
+        height_cm = float(payload.get('height_cm', 0.0))
+        status = payload.get('status', 'STANDBY')
 
-        payload['timestamp'] = current_time
-        payload['type'] = 'live_update' # Flags packet as live data
+        # Push to transactional log engine
+        log_to_mysql(node_id, mass_kg, height_cm, status, current_time)
+
+        # Assemble clean pipeline packet for active browser sockets
+        broadcast_payload = {
+            "type": "live_update",
+            "timestamp": current_time,
+            "node_id": node_id,
+            "mass_kg": mass_kg,
+            "height_cm": height_cm,
+            "status": status
+        }
         
-        message_str = json.dumps(payload)
+        message_str = json.dumps(broadcast_payload)
         asyncio.run_coroutine_threadsafe(broadcast_to_webpages(message_str), main_loop)
 
     except Exception as e:
@@ -109,7 +116,7 @@ async def websocket_handler(websocket):
     connected_web_clients.add(websocket)
     print(f"[WEB DASHBOARD] Dashboard tab connected. Active sessions: {len(connected_web_clients)}")
     
-    # NEW: The exact millisecond a page opens/refreshes, pull history from MySQL and send it over!
+    # Pre-populate chart on initial handshake connection
     history = fetch_recent_history()
     history_packet = {
         "type": "historical_data",
@@ -127,7 +134,7 @@ async def websocket_handler(websocket):
         print(f"[WEB DASHBOARD] Dashboard tab disconnected. Active sessions: {len(connected_web_clients)}")
 
 # ==========================================
-# 4. RUNTIME SYSTEM EXECUTION (ASYNC ENTRY)
+# 4. RUNTIME ENVIRONMENT INITIATION
 # ==========================================
 main_loop = None
 
@@ -155,7 +162,8 @@ async def main():
     mqtt_client.loop_start()
 
     print("[SERVER ENGINE] Starting server gateway on port 8765...")
-    async with websockets.serve(websocket_handler, "localhost", 8765):
+    # Bind to 0.0.0.0 to break down local routing port blocks
+    async with websockets.serve(websocket_handler, "0.0.0.0", 8765):
         await asyncio.Future()  
 
 if __name__ == "__main__":
