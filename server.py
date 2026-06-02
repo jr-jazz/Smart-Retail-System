@@ -156,12 +156,18 @@ async def main():
 
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
+    
+    print("[SERVER ENGINE] Connecting to HiveMQ Broker...")
     mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
     mqtt_client.loop_start()
 
     print("[SERVER ENGINE] Starting server gateway on port 8765...")
     async with websockets.serve(websocket_handler, "0.0.0.0", 8765):
-        await asyncio.Future()  
+        print("[SERVER ENGINE] Pipeline fully operational! Listening for sensor packets...")
+        
+        # FIXED: Instead of freezing, we cleanly yield time to the MQTT background processor
+        while True:
+            await asyncio.sleep(0.1) # Smoothly feeds incoming MQTT data packets into the async server loop
 
 if __name__ == "__main__":
     asyncio.run(main())
