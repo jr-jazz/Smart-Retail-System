@@ -62,7 +62,7 @@ def fetch_recent_history():
 # Double-check this matches your ESP32 publish topic perfectly (case-sensitive!)
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
-MQTT_TOPIC = "shelf/telemetry" 
+MQTT_TOPIC = "smart_retail/analytics/retailshelf" 
 
 connected_web_clients = set()
 
