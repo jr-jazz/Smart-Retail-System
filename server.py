@@ -38,14 +38,15 @@ def log_to_mysql(node_id, mass_kg, height_cm, status, current_time):
         print(f"[MYSQL ERROR] Database transaction failed: {err}")
 
 def fetch_recent_history():
-    """Queries MySQL to pull the last 15 records to pre-fill the web app graph upon reload."""
+    """Queries MySQL to pull the last 15 records to populate the web dashboard upon refresh."""
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
         
-        # UPDATED: Pulls directly from weight and distance columns
+        # FIXED: Added DATE_FORMAT to force MySQL to return a text string instead of a datetime object
         query = """
-            SELECT timestamp, node_id, CAST(weight AS DOUBLE) as mass_kg, 
+            SELECT DATE_FORMAT(timestamp, '%Y-%m-%d %H:%M:%S') as timestamp, 
+                   node_id, CAST(weight AS DOUBLE) as mass_kg, 
                    CAST(distance AS DOUBLE) as height_cm, status 
             FROM shelf_telemetry 
             ORDER BY id DESC LIMIT 15
@@ -56,12 +57,12 @@ def fetch_recent_history():
         cursor.close()
         conn.close()
         
+        # Reverse rows so they show up chronological from left-to-right on chart
         rows.reverse()
         return rows
     except mysql.connector.Error as err:
         print(f"[MYSQL FETCH ERROR] Failed to load history: {err}")
         return []
-
 # ==========================================
 # 2. MQTT DIAGNOSTIC SUBSCRIBER PIPELINE
 # ==========================================
