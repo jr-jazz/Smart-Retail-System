@@ -11,7 +11,7 @@ from datetime import datetime
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',          
-    'password': 'your_password_here',  # <-- PUT YOUR ACTUAL MYSQL PASSWORD HERE
+    'password': 'root',  # <-- DOUBLE CHECK THIS IS CORRECT!
     'database': 'smart_retail_shelf'
 }
 
@@ -36,6 +36,31 @@ def log_to_mysql(node_id, mass_kg, height_cm, status, current_time):
     except mysql.connector.Error as err:
         print(f"[MYSQL ERROR] Database transaction failed: {err}")
 
+def fetch_recent_history():
+    """Queries MySQL to pull the last 15 records to populate the web dashboard upon refresh."""
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True) # Returns data as a clean dictionary format
+        
+        query = """
+            SELECT timestamp, node_id, CAST(mass_kg AS DOUBLE) as mass_kg, 
+                   CAST(height_cm AS DOUBLE) as height_cm, status 
+            FROM shelf_telemetry 
+            ORDER BY id DESC LIMIT 15
+        """
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        # Reverse rows so they show up chronological from left-to-right on chart
+        rows.reverse()
+        return rows
+    except mysql.connector.Error as err:
+        print(f"[MYSQL FETCH ERROR] Failed to load history: {err}")
+        return []
+
 # ==========================================
 # 2. MQTT BROKER LISTENER & PIPELINE
 # ==========================================
@@ -46,29 +71,26 @@ MQTT_TOPIC = "shelf/telemetry"
 connected_web_clients = set()
 
 def on_connect(client, userdata, flags, rc, properties=None):
-    """Updated to support both Paho MQTT v1 and v2 callback signatures."""
     print(f"[MQTT] Connected to HiveMQ Broker with result code {rc}")
     client.subscribe(MQTT_TOPIC)
 
 def on_message(client, userdata, msg):
     try:
-        # Decode data coming from the physical/simulated ESP32
         payload = json.loads(msg.payload.decode('utf-8'))
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Pass variables to our transactional MySQL storage block
+        # Safely insert payload elements into MySQL
         log_to_mysql(
-            node_id=payload['node_id'],
-            mass_kg=payload['mass_kg'],
-            height_cm=payload['height_cm'],
-            status=payload['status'],
+            node_id=payload.get('node_id', 'ESP32_NODE'),
+            mass_kg=float(payload.get('mass_kg', 0.0)),
+            height_cm=float(payload.get('height_cm', 0.0)),
+            status=payload.get('status', 'STANDBY'),
             current_time=current_time
         )
 
-        # Inject runtime timestamp
         payload['timestamp'] = current_time
+        payload['type'] = 'live_update' # Flags packet as live data
         
-        # Safe async broadcast task creation for running loop
         message_str = json.dumps(payload)
         asyncio.run_coroutine_threadsafe(broadcast_to_webpages(message_str), main_loop)
 
@@ -79,16 +101,22 @@ def on_message(client, userdata, msg):
 # 3. WEBSOCKETS REAL-TIME ENGINE
 # ==========================================
 async def broadcast_to_webpages(message):
-    """Broadcasts telemetry changes to all open browser windows immediately."""
     if connected_web_clients:
-        # Create a copy of the set to avoid modification errors during iteration
         clients = connected_web_clients.copy()
         await asyncio.gather(*[client.send(message) for client in clients], return_exceptions=True)
 
 async def websocket_handler(websocket):
-    """Updated syntax for newer websockets library versions."""
     connected_web_clients.add(websocket)
     print(f"[WEB DASHBOARD] Dashboard tab connected. Active sessions: {len(connected_web_clients)}")
+    
+    # NEW: The exact millisecond a page opens/refreshes, pull history from MySQL and send it over!
+    history = fetch_recent_history()
+    history_packet = {
+        "type": "historical_data",
+        "data": history
+    }
+    await websocket.send(json.dumps(history_packet))
+
     try:
         async for message in websocket:
             pass
@@ -116,12 +144,9 @@ async def main():
         print(f"[CRITICAL FAILURE] Cannot reach MySQL Server: {err}")
         return
 
-    # Boot up background MQTT listener loop using explicit Callback API version 2
-    # This completely eliminates the DeprecationWarning
     try:
         mqtt_client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
     except AttributeError:
-        # Fallback for older Paho versions if version 2 is unavailable
         mqtt_client = mqtt.Client()
 
     mqtt_client.on_connect = on_connect
@@ -129,11 +154,9 @@ async def main():
     mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
     mqtt_client.loop_start()
 
-    # Launch WebSocket server on port 8765 using the modern async context manager syntax
     print("[SERVER ENGINE] Starting server gateway on port 8765...")
     async with websockets.serve(websocket_handler, "localhost", 8765):
-        await asyncio.Future()  # This keeps the server running forever
+        await asyncio.Future()  
 
 if __name__ == "__main__":
-    # Use modern asyncio.run() to properly establish the event loop at boot time
     asyncio.run(main())
