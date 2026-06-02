@@ -11,11 +11,11 @@
     <div class="max-w-6xl mx-auto bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-2xl flex justify-between items-center">
         <div>
             <h1 class="text-3xl font-bold tracking-tight text-emerald-400">SMART SHELF INVENTORY ANALYSIS</h1>
-            <p class="text-sm text-slate-400 mt-1">Infrastructure: Python Server Engine Core & MySQL Transactional Data Cluster</p>
+            <p class="text-sm text-slate-400 mt-1">Backend Infrastructure Hub: Python Server Core & MySQL Server Instancing</p>
         </div>
         <div class="text-right">
             <span id="connStatus" class="px-4 py-2 rounded-full text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                ESTABLISHING INFRASTRUCTURE GATEWAY...
+                ESTABLISHING INFRASTRUCTURE LINK...
             </span>
         </div>
     </div>
@@ -45,6 +45,7 @@
     <script>
         const ctx = document.getElementById('sqlStreamChart').getContext('2d');
         const statusBadge = document.getElementById('connStatus');
+        let socket;
         
         const telemetryChart = new Chart(ctx, {
             type: 'line',
@@ -70,60 +71,69 @@
             }
         });
 
-        // Establish connection via exact loopback address interface
-        const socket = new WebSocket('ws://127.0.0.1:8765');
+        // Robust Connection Loop with Auto-Reconnect Logic
+        function connectWebSocket() {
+            socket = new WebSocket('ws://127.0.0.1:8765');
 
-        socket.onopen = () => {
-            statusBadge.innerText = "MYSQL DATABASE STREAM CONNECTED";
-            statusBadge.className = "px-4 py-2 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
-        };
+            socket.onopen = () => {
+                statusBadge.innerText = "MYSQL DATABASE STREAM CONNECTED";
+                statusBadge.className = "px-4 py-2 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+            };
 
-        socket.onclose = () => {
-            statusBadge.innerText = "LOCAL SERVER OFFLINE";
-            statusBadge.className = "px-4 py-2 rounded-full text-xs font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30";
-        };
-
-        socket.onmessage = (event) => {
-            const response = JSON.parse(event.data);
-
-            // Channel 1: Historical Data Back-log Injection
-            if (response.type === "historical_data") {
-                telemetryChart.data.labels = [];
-                telemetryChart.data.datasets[0].data = [];
+            socket.onclose = () => {
+                statusBadge.innerText = "LOCAL SERVER OFFLINE";
+                statusBadge.className = "px-4 py-2 rounded-full text-xs font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30";
                 
-                response.data.forEach(item => {
-                    const timeLabel = item.timestamp ? item.timestamp.split(" ")[1] : "00:00:00";
-                    const historicalMass = (item.mass_kg !== undefined && item.mass_kg !== null) ? Number(item.mass_kg) : 0;
+                // Keep retrying to find the server every 2 seconds if connection cuts out
+                setTimeout(connectWebSocket, 2000);
+            };
+
+            socket.onerror = (err) => {
+                socket.close();
+            };
+
+            socket.onmessage = (event) => {
+                const response = JSON.parse(event.data);
+
+                // Channel 1: Historical Data Dump Injection
+                if (response.type === "historical_data") {
+                    telemetryChart.data.labels = [];
+                    telemetryChart.data.datasets[0].data = [];
                     
-                    telemetryChart.data.labels.push(timeLabel);
-                    telemetryChart.data.datasets[0].data.push(historicalMass);
-                });
+                    response.data.forEach(item => {
+                        const timeLabel = item.timestamp ? item.timestamp.split(" ")[1] : "00:00:00";
+                        const historicalMass = (item.mass_kg !== undefined && item.mass_kg !== null) ? Number(item.mass_kg) : 0;
+                        
+                        telemetryChart.data.labels.push(timeLabel);
+                        telemetryChart.data.datasets[0].data.push(historicalMass);
+                    });
+                    
+                    if(response.data.length > 0) {
+                        const latest = response.data[response.data.length - 1];
+                        updateUIDashcards(latest);
+                    }
+                    telemetryChart.update();
+                } 
                 
-                if(response.data.length > 0) {
-                    const latest = response.data[response.data.length - 1];
-                    updateUIDashcards(latest);
+                // Channel 2: Live Fluid Sensor Stream Traversal
+                else if (response.type === "live_update") {
+                    updateUIDashcards(response);
+
+                    const timeLabel = response.timestamp ? response.timestamp.split(" ")[1] : "00:00:00";
+                    if (telemetryChart.data.labels.length > 15) {
+                        telemetryChart.data.labels.shift();
+                        telemetryChart.data.datasets[0].data.shift();
+                    }
+
+                    const liveMassVal = (response.mass_kg !== undefined && response.mass_kg !== null) ? Number(response.mass_kg) : 0;
+                    telemetryChart.data.labels.push(timeLabel);
+                    telemetryChart.data.datasets[0].data.push(liveMassVal);
+                    telemetryChart.update('none');
                 }
-                telemetryChart.update();
-            } 
-            
-            // Channel 2: Live Fluid Sensor Stream Traversal
-            else if (response.type === "live_update") {
-                updateUIDashcards(response);
+            };
+        }
 
-                const timeLabel = response.timestamp ? response.timestamp.split(" ")[1] : "00:00:00";
-                if (telemetryChart.data.labels.length > 15) {
-                    telemetryChart.data.labels.shift();
-                    telemetryChart.data.datasets[0].data.shift();
-                }
-
-                const liveMassVal = (response.mass_kg !== undefined && response.mass_kg !== null) ? Number(response.mass_kg) : 0;
-                telemetryChart.data.labels.push(timeLabel);
-                telemetryChart.data.datasets[0].data.push(liveMassVal);
-                telemetryChart.update('none'); 
-            }
-        };
-
-        // UI Renderer Block with Built-In Value Protectors
+        // Safe UI Renderer Block with Fallback Protectors
         function updateUIDashcards(data) {
             const massValue = (data && data.mass_kg !== undefined && data.mass_kg !== null) ? Number(data.mass_kg) : 0;
             const heightValue = (data && data.height_cm !== undefined && data.height_cm !== null) ? Number(data.height_cm) : 0;
@@ -134,13 +144,15 @@
             
             const statusEl = document.getElementById('liveStatus');
             statusEl.innerText = statusValue;
-            
             if(statusValue === "ALARM" || statusValue === "LOW STOCK") {
                 statusEl.className = "text-4xl font-black text-rose-500 mt-3 animate-pulse";
             } else {
                 statusEl.className = "text-4xl font-black text-emerald-400 mt-3";
             }
         }
+
+        // Initialize App Loop
+        connectWebSocket();
     </script>
 </body>
 </html>
