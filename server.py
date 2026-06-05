@@ -96,10 +96,15 @@ def on_message(client, userdata, msg):
         node_id = payload.get('meta', 'ESP32_NODE')  
         mass_kg = float(payload.get('weight', 0.0))   
         height_cm = float(payload.get('distance', 0.0)) 
-        status = payload.get('status', 'STANDBY')     
+        
+        # CHANGED: Default is now 'LIVE_TELEMETRY' for active sensor sweeps.
+        # When Blynk buttons are pressed, this will dynamically receive 'REJECTED_WITHDRAWAL' or 'REJECTED_NEW_ORDER'
+        status = payload.get('status', 'LIVE_TELEMETRY')     
 
+        # Route the complete data frame natively down to your MySQL instance ledger
         log_to_mysql(node_id, mass_kg, height_cm, status, current_time)
 
+        # Build full-duplex JSON frame for instantaneous WebSockets transmission
         broadcast_payload = {
             "type": "live_update",
             "timestamp": current_time,
