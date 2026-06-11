@@ -5,13 +5,11 @@ import websockets
 import paho.mqtt.client as mqtt
 from datetime import datetime
 
-# ==========================================
-# 1. DATABASE CONFIGURATION & CONNECTIVITY
-# ==========================================
+# DATABASE CONFIGURATION & CONNECTIVITY
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',          
-    'password': 'root',  # <-- MAKE SURE THIS PASSWORD IS 100% CORRECT
+    'password': 'root',
     'database': 'smart_retail_shelf'
 }
 
@@ -21,7 +19,6 @@ def log_to_mysql(node_id, mass_kg, height_cm, status, current_time):
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
         
-        # UPDATED: Matches the clean weight/distance columns
         query = """
             INSERT INTO shelf_telemetry (timestamp, node_id, weight, distance, status)
             VALUES (%s, %s, %s, %s, %s)
@@ -43,7 +40,6 @@ def fetch_recent_history():
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
         
-        # FIXED: Added DATE_FORMAT to force MySQL to return a text string instead of a datetime object
         query = """
             SELECT DATE_FORMAT(timestamp, '%Y-%m-%d %H:%M:%S') as timestamp, 
                    node_id, CAST(weight AS DOUBLE) as mass_kg, 
@@ -57,16 +53,12 @@ def fetch_recent_history():
         cursor.close()
         conn.close()
         
-        # Reverse rows so they show up chronological from left-to-right on chart
         rows.reverse()
         return rows
     except mysql.connector.Error as err:
         print(f"[MYSQL FETCH ERROR] Failed to load history: {err}")
         return []
-# ==========================================
-# 2. MQTT DIAGNOSTIC SUBSCRIBER PIPELINE
-# ==========================================
-# Double-check this matches your ESP32 publish topic perfectly (case-sensitive!)
+# MQTT SUBSCRIBER PIPELINE
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC = "smart_retail/analytics/retailshelf" 
@@ -92,19 +84,14 @@ def on_message(client, userdata, msg):
         payload = json.loads(raw_data)
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Pull values exactly as your ESP32 string constructs them
         node_id = payload.get('meta', 'ESP32_NODE')  
         mass_kg = float(payload.get('weight', 0.0))   
         height_cm = float(payload.get('distance', 0.0)) 
         
-        # CHANGED: Default is now 'LIVE_TELEMETRY' for active sensor sweeps.
-        # When Blynk buttons are pressed, this will dynamically receive 'REJECTED_WITHDRAWAL' or 'REJECTED_NEW_ORDER'
         status = payload.get('status', 'LIVE_TELEMETRY')     
 
-        # Route the complete data frame natively down to your MySQL instance ledger
         log_to_mysql(node_id, mass_kg, height_cm, status, current_time)
 
-        # Build full-duplex JSON frame for instantaneous WebSockets transmission
         broadcast_payload = {
             "type": "live_update",
             "timestamp": current_time,
@@ -120,9 +107,7 @@ def on_message(client, userdata, msg):
     except Exception as e:
         print(f"[PARSING CRASH] Packet arrived but structure failed to compile: {e}")
 
-# ==========================================
-# 3. WEBSOCKETS ENGINE
-# ==========================================
+# WEBSOCKETS ENGINE
 async def broadcast_to_webpages(message):
     if connected_web_clients:
         clients = connected_web_clients.copy()
@@ -148,9 +133,7 @@ async def websocket_handler(websocket):
         connected_web_clients.remove(websocket)
         print(f"[FRONTEND DISPATCHER] Browser socket dropped. Active sessions: {len(connected_web_clients)}")
 
-# ==========================================
-# 4. RUNTIME BOOTSTRAPPER
-# ==========================================
+# RUNTIME INITIALIZATION
 main_loop = None
 
 async def main():
