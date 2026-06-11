@@ -2,157 +2,238 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Enterprise Smart Shelf Control Panel</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise Smart Shelf Analytics</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .tab-btn.active { border-color: #3b82f6; color: #3b82f6; font-weight: 600; }
+    </style>
 </head>
-<body class="bg-slate-950 text-slate-100 font-sans p-8">
+<body class="bg-gray-900 text-gray-100 font-sans antialiased min-h-screen">
 
-    <div class="max-w-6xl mx-auto bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-2xl flex justify-between items-center">
-        <div>
-            <h1 class="text-3xl font-bold tracking-tight text-emerald-400">SMART SHELF INVENTORY ANALYSIS</h1>
-            <p class="text-sm text-slate-400 mt-1">Backend Infrastructure Hub: Python Server Core & MySQL Server Instancing</p>
+    <header class="bg-gray-800 border-b border-gray-700 px-6 py-4 flex justify-between items-center shadow-lg">
+        <div class="flex items-center space-x-3">
+            <i class="fa-solid fa-cubes-stacked text-blue-500 text-2xl"></i>
+            <h1 class="text-xl font-bold tracking-wide">RetailShelf <span class="text-blue-400 text-sm font-medium">v2.0</span></h1>
         </div>
-        <div class="text-right">
-            <span id="connStatus" class="px-4 py-2 rounded-full text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                ESTABLISHING INFRASTRUCTURE LINK...
+        <div class="flex items-center space-x-2 bg-gray-900 px-3 py-1.5 rounded-full border border-gray-700">
+            <span class="relative flex h-3 w-3">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
             </span>
+            <span id="connection-status" class="text-xs font-semibold text-emerald-400 uppercase tracking-wider">WebSocket Connected</span>
         </div>
-    </div>
+    </header>
 
-    <div class="max-w-6xl mx-auto mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div class="bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-lg">
-            <p class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Live Weight Readout</p>
-            <p id="liveMass" class="text-5xl font-black text-emerald-400 mt-2">0.00 <span class="text-xl font-normal text-slate-400">kg</span></p>
-        </div>
-        <div class="bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-lg">
-            <p class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Stack Volume Height</p>
-            <p id="liveHeight" class="text-5xl font-black text-cyan-400 mt-2">0.0 <span class="text-xl font-normal text-slate-400">cm</span></p>
-        </div>
-        <div class="bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-lg">
-            <p class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Node Security State</p>
-            <p id="liveStatus" class="text-4xl font-black text-slate-400 mt-3">STANDBY</p>
+    <main class="max-w-7xl mx-auto p-6">
+        
+        <div class="flex border-b border-gray-700 mb-6 space-x-4">
+            <button onclick="switchTab('live-view', this)" class="tab-btn active py-2 px-4 border-b-2 border-transparent text-gray-400 hover:text-gray-200 transition-all flex items-center space-x-2">
+                <i class="fa-solid fa-gauge-high"></i> <span>Live Dashboard</span>
+            </button>
+            <button onclick="switchTab('withdrawal-view', this)" class="tab-btn py-2 px-4 border-b-2 border-transparent text-gray-400 hover:text-gray-200 transition-all flex items-center space-x-2">
+                <i class="fa-solid fa-arrow-right-from-bracket"></i> <span>Withdrawal Log</span>
+            </button>
+            <button onclick="switchTab('restock-view', this)" class="tab-btn py-2 px-4 border-b-2 border-transparent text-gray-400 hover:text-gray-200 transition-all flex items-center space-x-2">
+                <i class="fa-solid fa-boxes-packing"></i> <span>Restock & Dispatch Log</span>
+            </button>
         </div>
 
-        <div class="md:col-span-3 bg-slate-900 p-6 rounded-xl border border-slate-800 h-96 relative shadow-xl">
-            <h2 class="text-lg font-bold mb-4 text-slate-300">Continuous Relational MySQL Telemetry Stream</h2>
-            <div class="absolute inset-x-6 top-16 bottom-6">
-                <canvas id="sqlStreamChart"></canvas>
+        <div id="live-view" class="tab-content active space-y-6 animate-fade-in">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 flex items-center justify-between shadow-md">
+                    <div>
+                        <p class="text-sm text-gray-400 font-medium uppercase tracking-wider">Current Weight</p>
+                        <h3 id="live-weight" class="text-3xl font-bold mt-1 text-white">0.00 <span class="text-lg text-gray-400 font-normal">kg</span></h3>
+                    </div>
+                    <div class="bg-blue-500/10 p-4 rounded-lg border border-blue-500/20 text-blue-400 text-2xl">
+                        <i class="fa-solid fa-weight-scale"></i>
+                    </div>
+                </div>
+
+                <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 flex items-center justify-between shadow-md">
+                    <div>
+                        <p class="text-sm text-gray-400 font-medium uppercase tracking-wider">Stock Level Profile</p>
+                        <h3 id="live-distance" class="text-3xl font-bold mt-1 text-white">0.00 <span class="text-lg text-gray-400 font-normal">cm</span></h3>
+                    </div>
+                    <div class="bg-purple-500/10 p-4 rounded-lg border border-purple-500/20 text-purple-400 text-2xl">
+                        <i class="fa-solid fa-ruler-vertical"></i>
+                    </div>
+                </div>
+
+                <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 flex items-center justify-between shadow-md">
+                    <div>
+                        <p class="text-sm text-gray-400 font-medium uppercase tracking-wider">Last Status Flag</p>
+                        <h3 id="live-status" class="text-xl font-bold mt-2 text-amber-400 uppercase tracking-wide">STANDBY</h3>
+                    </div>
+                    <div class="bg-amber-500/10 p-4 rounded-lg border border-amber-500/20 text-amber-400 text-2xl">
+                        <i class="fa-solid fa-circle-info"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-gray-800 rounded-xl border border-gray-700 shadow-xl overflow-hidden">
+                <div class="bg-gray-750 px-6 py-4 border-b border-gray-700 flex justify-between items-center">
+                    <h2 class="font-bold text-gray-200 flex items-center space-x-2">
+                        <i class="fa-solid fa-network-wired text-blue-400"></i> <span>Live Global System Stream</span>
+                    </h2>
+                    <span class="text-xs text-gray-400 italic">Updates automatically as events occur</span>
+                </div>
+                <div class="p-4 max-h-[400px] overflow-y-auto font-mono text-xs space-y-2 bg-gray-950" id="live-stream-box">
+                    <div class="text-gray-500 italic">[SYSTEM] Awaiting incoming data payloads from Wokwi node network...</div>
+                </div>
             </div>
         </div>
-    </div>
+
+        <div id="withdrawal-view" class="tab-content space-y-4">
+            <div class="bg-gray-800 rounded-xl border border-gray-700 shadow-xl overflow-hidden">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-gray-750 text-gray-300 text-xs font-semibold uppercase tracking-wider border-b border-gray-700">
+                        <tr>
+                            <th class="p-4">Timestamp</th>
+                            <th class="p-4">Node ID</th>
+                            <th class="p-4">Weight Event</th>
+                            <th class="p-4">Height Profile</th>
+                            <th class="p-4">Action Taken / Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody id="withdrawal-table-body" class="text-sm divide-y divide-gray-700/50">
+                        <tr>
+                            <td colspan="5" class="p-8 text-center text-gray-500 italic">No historical stock removal parameters captured yet in this session.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="restock-view" class="tab-content space-y-4">
+            <div class="bg-gray-800 rounded-xl border border-gray-700 shadow-xl overflow-hidden">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-gray-750 text-gray-300 text-xs font-semibold uppercase tracking-wider border-b border-gray-700">
+                        <tr>
+                            <th class="p-4">Timestamp</th>
+                            <th class="p-4">Node ID</th>
+                            <th class="p-4">Mass Variance</th>
+                            <th class="p-4">Distance Value</th>
+                            <th class="p-4">System Transaction Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="restock-table-body" class="text-sm divide-y divide-gray-700/50">
+                        <tr>
+                            <td colspan="5" class="p-8 text-center text-gray-500 italic">No supply restock or dispatch workflows processed yet in this session.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
 
     <script>
-        const ctx = document.getElementById('sqlStreamChart').getContext('2d');
-        const statusBadge = document.getElementById('connStatus');
-        let socket;
+        // Setup secure full-duplex WebSocket link directly back to Python VS Code server
+        const socket = new WebSocket('ws://localhost:8765');
         
-        const telemetryChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'Live Shelf Mass Tracking (kg)',
-                    data: [],
-                    borderColor: '#10b981',
-                    backgroundColor: 'rgba(16, 185, 129, 0.05)',
-                    borderWidth: 3,
-                    tension: 0.2,
-                    pointRadius: 4
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: { grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
-                    y: { grid: { color: '#1e293b' }, ticks: { color: '#64748b' } }
-                }
-            }
-        });
+        const liveWeight = document.getElementById('live-weight');
+        const liveDistance = document.getElementById('live-distance');
+        const liveStatus = document.getElementById('live-status');
+        const liveStreamBox = document.getElementById('live-stream-box');
+        const statusEl = document.getElementById('connection-status');
 
-        // Robust Connection Loop with Auto-Reconnect Logic
-        function connectWebSocket() {
-            socket = new WebSocket('ws://127.0.0.1:8765');
+        const withdrawalTable = document.getElementById('withdrawal-table-body');
+        const restockTable = document.getElementById('restock-table-body');
 
-            socket.onopen = () => {
-                statusBadge.innerText = "MYSQL DATABASE STREAM CONNECTED";
-                statusBadge.className = "px-4 py-2 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
-            };
+        let isFirstDataReceived = false;
 
-            socket.onclose = () => {
-                statusBadge.innerText = "LOCAL SERVER OFFLINE";
-                statusBadge.className = "px-4 py-2 rounded-full text-xs font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30";
+        // Manage clean client tab viewport switching
+        function switchTab(tabId, btn) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            
+            document.getElementById(tabId).classList.add('active');
+            btn.classList.add('active');
+        }
+
+        socket.onopen = () => {
+            statusEl.textContent = "WebSocket Connected";
+            statusEl.className = "text-xs font-semibold text-emerald-400 uppercase tracking-wider";
+        };
+
+        socket.onclose = () => {
+            statusEl.textContent = "Offline / Disconnected";
+            statusEl.className = "text-xs font-semibold text-rose-400 uppercase tracking-wider";
+        };
+
+        // Real-time Event Receiver Engine
+        socket.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
                 
-                // Keep retrying to find the server every 2 seconds if connection cuts out
-                setTimeout(connectWebSocket, 2000);
-            };
+                // Strip the system placeholder message on the first incoming packet
+                if (!isFirstDataReceived) {
+                    liveStreamBox.innerHTML = '';
+                    withdrawalTable.innerHTML = '';
+                    restockTable.innerHTML = '';
+                    isFirstDataReceived = true;
+                }
 
-            socket.onerror = (err) => {
-                socket.close();
-            };
+                // 1. Process Main Panel Global Numeric Values
+                liveWeight.innerHTML = `${data.mass_kg.toFixed(2)} <span class="text-lg text-gray-400 font-normal">kg</span>`;
+                liveDistance.innerHTML = `${data.height_cm.toFixed(2)} <span class="text-lg text-gray-400 font-normal">cm</span>`;
+                liveStatus.textContent = data.status.replace('_', ' ');
 
-            socket.onmessage = (event) => {
-                const response = JSON.parse(event.data);
+                // Colorize the live status badge dynamically depending on context danger/exceptions
+                if (data.status.includes('REJECT')) {
+                    liveStatus.className = "text-xl font-bold mt-2 text-rose-400 uppercase tracking-wide";
+                } else if (data.status.includes('RESTOCK')) {
+                    liveStatus.className = "text-xl font-bold mt-2 text-emerald-400 uppercase tracking-wide";
+                } else {
+                    liveStatus.className = "text-xl font-bold mt-2 text-amber-400 uppercase tracking-wide";
+                }
 
-                // Channel 1: Historical Data Dump Injection
-                if (response.type === "historical_data") {
-                    telemetryChart.data.labels = [];
-                    telemetryChart.data.datasets[0].data = [];
-                    
-                    response.data.forEach(item => {
-                        const timeLabel = item.timestamp ? item.timestamp.split(" ")[1] : "00:00:00";
-                        const historicalMass = (item.mass_kg !== undefined && item.mass_kg !== null) ? Number(item.mass_kg) : 0;
-                        
-                        telemetryChart.data.labels.push(timeLabel);
-                        telemetryChart.data.datasets[0].data.push(historicalMass);
-                    });
-                    
-                    if(response.data.length > 0) {
-                        const latest = response.data[response.data.length - 1];
-                        updateUIDashcards(latest);
-                    }
-                    telemetryChart.update();
+                // 2. Format a Console Log Stream Line
+                const logLine = document.createElement('div');
+                logLine.className = "py-1 border-b border-gray-900 last:border-0 flex space-x-4";
+                logLine.innerHTML = `
+                    <span class="text-gray-500">[${data.timestamp}]</span>
+                    <span class="text-blue-400 font-semibold">${data.node_id}</span>
+                    <span class="text-gray-300">W: ${data.mass_kg}kg | D: ${data.height_cm}cm</span>
+                    <span class="ml-auto font-bold ${data.status.includes('REJECT') ? 'text-rose-400' : 'text-amber-400'}">${data.status}</span>
+                `;
+                liveStreamBox.insertBefore(logLine, liveStreamBox.firstChild);
+
+                // 3. Filter Records to Respective Tab Layouts based on System Event State
+                const rowHTML = `
+                    <tr class="hover:bg-gray-750/40 transition-colors">
+                        <td class="p-4 font-mono text-gray-400">${data.timestamp}</td>
+                        <td class="p-4 font-semibold text-blue-400">${data.node_id}</td>
+                        <td class="p-4 font-mono font-medium">${data.mass_kg.toFixed(2)} kg</td>
+                        <td class="p-4 font-mono text-gray-300">${data.height_cm.toFixed(2)} cm</td>
+                        <td class="p-4">
+                            <span class="px-2.5 py-1 rounded text-xs font-bold uppercase tracking-wider ${
+                                data.status.includes('REJECT') ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 
+                                data.status.includes('RESTOCK') ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
+                                'bg-gray-700 text-gray-300'
+                            }">${data.status}</span>
+                        </td>
+                    </tr>
+                `;
+
+                // Categorize logs based on status flag string matching
+                if (data.status === "REJECTED_WITHDRAWAL" || data.status === "STANDBY" || data.status === "LIVE_TELEMETRY") {
+                    withdrawalTable.insertAdjacentHTML('afterbegin', rowHTML);
                 } 
                 
-                // Channel 2: Live Fluid Sensor Stream Traversal
-                else if (response.type === "live_update") {
-                    updateUIDashcards(response);
-
-                    const timeLabel = response.timestamp ? response.timestamp.split(" ")[1] : "00:00:00";
-                    if (telemetryChart.data.labels.length > 15) {
-                        telemetryChart.data.labels.shift();
-                        telemetryChart.data.datasets[0].data.shift();
-                    }
-
-                    const liveMassVal = (response.mass_kg !== undefined && response.mass_kg !== null) ? Number(response.mass_kg) : 0;
-                    telemetryChart.data.labels.push(timeLabel);
-                    telemetryChart.data.datasets[0].data.push(liveMassVal);
-                    telemetryChart.update('none');
+                if (data.status === "REJECTED_NEW_ORDER" || data.status === "RESTOCK" || data.status === "AUTO_REORDER") {
+                    restockTable.insertAdjacentHTML('afterbegin', rowHTML);
                 }
-            };
-        }
 
-        // Safe UI Renderer Block with Fallback Protectors
-        function updateUIDashcards(data) {
-            const massValue = (data && data.mass_kg !== undefined && data.mass_kg !== null) ? Number(data.mass_kg) : 0;
-            const heightValue = (data && data.height_cm !== undefined && data.height_cm !== null) ? Number(data.height_cm) : 0;
-            const statusValue = data.status || "STANDBY";
-
-            document.getElementById('liveMass').innerHTML = `${massValue.toFixed(2)} <span class="text-xl font-normal text-slate-400">kg</span>`;
-            document.getElementById('liveHeight').innerHTML = `${heightValue.toFixed(1)} <span class="text-xl font-normal text-slate-400">cm</span>`;
-            
-            const statusEl = document.getElementById('liveStatus');
-            statusEl.innerText = statusValue;
-            if(statusValue === "ALARM" || statusValue === "LOW STOCK") {
-                statusEl.className = "text-4xl font-black text-rose-500 mt-3 animate-pulse";
-            } else {
-                statusEl.className = "text-4xl font-black text-emerald-400 mt-3";
+            } catch (err) {
+                console.error("Frame compilation crash:", err);
             }
-        }
-
-        // Initialize App Loop
-        connectWebSocket();
+        };
     </script>
 </body>
 </html>
